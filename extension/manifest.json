@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "PageAssistant",
+  "version": "0.1.0",
+  "description": "Chat with the page you have open, plus web search, through a local Claude Code bridge.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "scripting", "tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open PageAssistant"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

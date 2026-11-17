@@ -1,0 +1,13 @@
+{
+  "name": "pageassistant-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local bridge between the PageAssistant Chrome extension and the Claude Code CLI",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

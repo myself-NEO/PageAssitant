@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PageAssistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <span id="status" class="dot" title="Checking bridge…"></span>
+    <strong>PageAssistant</strong>
+    <span class="spacer"></span>
+    <button id="newChat" class="ghost" title="Start a new conversation">New chat</button>
+    <button id="openSettings" class="ghost" title="Settings">Settings</button>
+  </header>
+
+  <section id="settings" hidden>
+    <label>Bridge token
+      <input id="token" type="password" autocomplete="off" placeholder="Paste the token the bridge prints">
+    </label>
+    <label>Bridge port
+      <input id="port" type="number" min="1" max="65535" value="8765">
+    </label>
+    <div class="row">
+      <button id="saveSettings">Save</button>
+      <span id="settingsMsg" class="muted"></span>
+    </div>
+  </section>
+
+  <div id="banner" hidden></div>
+
+  <main id="messages">
+    <div class="empty" id="empty">
+      <p>Ask about the page you have open.</p>
+      <p class="muted">Answers use the page first and search the web when it doesn't cover your question. Highlight text on the page to ask about that part.</p>
+    </div>
+  </main>
+
+  <footer>
+    <label id="pageChip" class="chip" title="">
+      <input id="usePage" type="checkbox" checked>
+      <span id="pageTitle">No page</span>
+    </label>
+    <form id="form">
+      <textarea id="input" rows="2" placeholder="Ask a question…  (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </footer>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
