@@ -20,13 +20,25 @@ For personal use on this machine. Usage counts against your Claude subscription 
 - Start `bridge\start.cmd` and leave its window open.
 - Open any page, click the toolbar icon, ask.
 - Highlight text on the page before asking to focus the question on it.
-- Untick the page chip above the input for a web-only question.
 - **New chat** starts a fresh conversation. Closing the panel also clears the chat.
+
+### Several pages as sources
+
+The list above the input shows what the next answer will use.
+
+- **Current tab** follows whatever tab you are on. Untick it to leave that page out.
+- **Pin this page** keeps the page as a source after you move to another tab.
+- **Add open tabs…** lists the tabs in this window; tick several and add them in one go.
+- Tick or untick a pinned source to switch it on or off; **×** removes it.
+- With nothing ticked, answers come from the web only.
+
+Pinned sources are saved as a snapshot of the page text and survive closing the panel or Chrome. Pin a page again to refresh its snapshot.
 
 ## Notes
 
-- The page text is sent once per conversation, and again if you move to a different page. Follow-ups reuse the same Claude session.
-- Pages longer than about 150,000 characters are truncated; the panel says so.
+- Each page is sent to Claude once per conversation. Later turns only send pages you have added and tell Claude which ones you switched off.
+- A single page is cut at about 150,000 characters, and one conversation holds about 400,000 characters of page text in total. The panel says when a page was cut or left out; start a new chat with fewer sources ticked to make room.
+- Tabs that Chrome has unloaded to save memory must be opened once before they can be added.
 - `chrome://` pages, the Chrome Web Store and Chrome's PDF viewer can't be read by extensions; you get web-only answers there. For local `file://` pages, enable "Allow access to file URLs" on the extension's details page.
 - Optional environment variables for the bridge: `PAGEASSISTANT_PORT`, `PAGEASSISTANT_MODEL` (for example `sonnet` for faster, lighter answers), `CLAUDE_BIN`.
 

@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "PageAssistant",
-  "version": "0.1.0",
-  "description": "Chat with the page you have open, plus web search, through a local Claude Code bridge.",
+  "version": "0.2.0",
+  "description": "Chat with the pages you choose as sources, plus web search, through a local Claude Code bridge.",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "scripting", "tabs", "storage"],
+  "permissions": ["sidePanel", "scripting", "tabs", "storage", "unlimitedStorage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

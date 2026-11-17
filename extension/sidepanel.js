@@ -7,7 +7,13 @@ const els = {
   usePage: $('usePage'), pageChip: $('pageChip'), pageTitle: $('pageTitle'),
   newChat: $('newChat'), openSettings: $('openSettings'), settings: $('settings'),
   token: $('token'), port: $('port'), saveSettings: $('saveSettings'), settingsMsg: $('settingsMsg'),
+  sourceCount: $('sourceCount'), pinned: $('pinned'), pinPage: $('pinPage'), addTabs: $('addTabs'),
+  tabPicker: $('tabPicker'), tabList: $('tabList'), tickAllTabs: $('tickAllTabs'),
+  addSelectedTabs: $('addSelectedTabs'), cancelTabs: $('cancelTabs'), tabMsg: $('tabMsg'),
 };
+
+// Keep in step with MAX_SOURCE_CHARS in bridge/prompt.js.
+const MAX_SOURCE_CHARS = 150_000;
 
 const state = {
   token: '',
@@ -16,6 +22,9 @@ const state = {
   busy: false,
   abort: null,
   bridge: 'unknown', // 'ok' | 'unauthorized' | 'down' | 'unknown'
+  // Pages kept as sources: [{ url, title, text, enabled }]. Saved across sessions.
+  pinned: [],
+  currentUrl: '',
 };
 
 const base = () => `http://127.0.0.1:${state.port}`;
@@ -24,9 +33,10 @@ const authHeaders = () => ({ Authorization: `Bearer ${state.token}` });
 // --- settings --------------------------------------------------------------
 
 async function loadSettings() {
-  const saved = await chrome.storage.local.get(['token', 'port']);
+  const saved = await chrome.storage.local.get(['token', 'port', 'pinned']);
   state.token = saved.token ?? '';
   state.port = saved.port ?? 8765;
+  state.pinned = Array.isArray(saved.pinned) ? saved.pinned : [];
   els.token.value = state.token;
   els.port.value = state.port;
   if (!state.token) els.settings.hidden = false;
@@ -88,8 +98,11 @@ async function refreshPageChip() {
   const ok = canRead(tab);
   els.pageChip.classList.toggle('unavailable', !ok);
   els.usePage.disabled = !ok;
-  els.pageTitle.textContent = ok ? (tab.title || tab.url) : "This page can't be read (web-only answers)";
+  els.pageTitle.textContent = ok ? (tab.title || tab.url) : "This page can't be read";
   els.pageChip.title = ok ? tab.url : '';
+  state.currentUrl = ok ? tab.url : '';
+  els.pinPage.disabled = !ok;
+  updateSourceCount();
 }
 
 chrome.tabs.onActivated.addListener(refreshPageChip);
@@ -98,22 +111,162 @@ chrome.tabs.onUpdated.addListener((_id, change, tab) => {
 });
 chrome.windows.onFocusChanged.addListener(refreshPageChip);
 
-/** Returns { source } or { reason } when the page could not be read. */
-async function extractPage() {
-  const tab = await activeTab();
-  if (!canRead(tab)) return { reason: "This page can't be read by extensions, so the answer uses the web only." };
+/** Read one tab. Returns { source } or { reason } when it could not be read. */
+async function extractTab(tab) {
+  if (!canRead(tab)) return { reason: "This page can't be read by extensions." };
+  if (tab.discarded) return { reason: 'Chrome has unloaded this tab to save memory; open it once, then add it.' };
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['vendor/Readability.js', 'extract.js'],
     });
     const page = results?.[0]?.result;
-    if (!page?.text) return { reason: 'No readable text was found on this page (it may be a PDF or an image), so the answer uses the web only.' };
+    if (!page?.text) return { reason: 'No readable text was found (it may be a PDF or an image).' };
     return { source: page };
   } catch (err) {
-    return { reason: `Could not read this page (${err.message}), so the answer uses the web only.` };
+    return { reason: `Could not read this page (${err.message}).` };
   }
 }
+
+// --- pinned sources --------------------------------------------------------
+
+const sameUrl = (a, b) => a.split('#')[0] === b.split('#')[0];
+
+async function savePinned() {
+  try {
+    await chrome.storage.local.set({ pinned: state.pinned });
+  } catch (err) {
+    addEl('note error', `Could not save pinned sources (${err.message}).`);
+  }
+}
+
+function updateSourceCount() {
+  const pinnedOn = state.pinned.filter((p) => p.enabled);
+  let n = pinnedOn.length;
+  const currentCounts = els.usePage.checked && !els.usePage.disabled
+    && !pinnedOn.some((p) => sameUrl(p.url, state.currentUrl));
+  if (currentCounts) n += 1;
+  els.sourceCount.textContent = n === 0 ? 'No sources (web only)' : `${n} source${n === 1 ? '' : 's'} in use`;
+}
+
+function renderPinned() {
+  els.pinned.replaceChildren(...state.pinned.map((p) => {
+    const row = document.createElement('label');
+    row.className = 'chip';
+    row.title = p.url;
+
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = p.enabled;
+    box.addEventListener('change', () => { p.enabled = box.checked; savePinned(); updateSourceCount(); });
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = p.title || p.url;
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'remove';
+    remove.textContent = '×';
+    remove.title = 'Remove this source';
+    remove.addEventListener('click', (e) => {
+      e.preventDefault();
+      state.pinned = state.pinned.filter((x) => x !== p);
+      savePinned();
+      renderPinned();
+    });
+
+    row.append(box, title, remove);
+    return row;
+  }));
+  updateSourceCount();
+}
+
+/** Add or refresh a pinned source. Returns true when the text had to be cut. */
+function pin(page) {
+  const cut = page.text.length > MAX_SOURCE_CHARS;
+  const entry = {
+    url: page.url,
+    title: page.title || page.url,
+    text: cut ? page.text.slice(0, MAX_SOURCE_CHARS) : page.text,
+    enabled: true,
+  };
+  const i = state.pinned.findIndex((p) => sameUrl(p.url, page.url));
+  if (i === -1) state.pinned.push(entry);
+  else state.pinned[i] = entry;
+  return cut;
+}
+
+els.usePage.addEventListener('change', updateSourceCount);
+
+els.pinPage.addEventListener('click', async () => {
+  const { source, reason } = await extractTab(await activeTab());
+  if (!source) { addEl('note', reason); scrollDown(true); return; }
+  pin(source);
+  await savePinned();
+  renderPinned();
+});
+
+// --- open-tabs picker ------------------------------------------------------
+
+let pickerTabs = [];
+
+els.addTabs.addEventListener('click', async () => {
+  if (!els.tabPicker.hidden) { els.tabPicker.hidden = true; return; }
+  const tabs = await chrome.tabs.query({ currentWindow: true });
+  pickerTabs = tabs.filter(canRead);
+  els.tabMsg.textContent = pickerTabs.length ? '' : 'No readable tabs are open in this window.';
+  els.tabList.replaceChildren(...pickerTabs.map((tab, i) => {
+    const row = document.createElement('label');
+    row.className = 'chip';
+    row.title = tab.url;
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.dataset.index = i;
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = tab.title || tab.url;
+    row.append(box, title);
+    if (state.pinned.some((p) => sameUrl(p.url, tab.url))) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = 'pinned';
+      row.append(tag);
+    }
+    return row;
+  }));
+  els.tabPicker.hidden = false;
+});
+
+els.tickAllTabs.addEventListener('click', () => {
+  const boxes = [...els.tabList.querySelectorAll('input')];
+  const allOn = boxes.every((b) => b.checked);
+  for (const b of boxes) b.checked = !allOn;
+});
+
+els.cancelTabs.addEventListener('click', () => { els.tabPicker.hidden = true; });
+
+els.addSelectedTabs.addEventListener('click', async () => {
+  const chosen = [...els.tabList.querySelectorAll('input:checked')].map((b) => pickerTabs[Number(b.dataset.index)]);
+  if (!chosen.length) { els.tabMsg.textContent = 'Tick at least one tab.'; return; }
+  els.addSelectedTabs.disabled = true;
+  els.tabMsg.textContent = 'Reading tabs…';
+  const failed = [];
+  let added = 0;
+  for (const tab of chosen) {
+    const { source, reason } = await extractTab(tab);
+    if (source) { pin(source); added += 1; }
+    else failed.push(`${tab.title || tab.url}: ${reason}`);
+  }
+  await savePinned();
+  renderPinned();
+  els.addSelectedTabs.disabled = false;
+  els.tabPicker.hidden = true;
+  if (failed.length) {
+    addEl('note', `Added ${added} of ${chosen.length} tabs. Not added: ${failed.join(' | ')}`);
+    scrollDown(true);
+  }
+});
 
 // --- rendering -------------------------------------------------------------
 
@@ -185,11 +338,23 @@ async function ask(question) {
   addEl('msg user', question);
   scrollDown(true);
 
-  const sources = [];
-  if (els.usePage.checked && !els.usePage.disabled) {
-    const { source, reason } = await extractPage();
-    if (source) sources.push(source);
-    else addEl('note', reason);
+  // Sources for this turn: every ticked pinned page, plus the current tab if it
+  // is ticked and not already pinned. Highlighted text on the current tab goes
+  // along separately so it works for pinned pages too.
+  const sources = state.pinned.filter((p) => p.enabled).map(({ url, title, text }) => ({ url, title, text }));
+  let selection;
+  const currentIsPinned = sources.some((s) => sameUrl(s.url, state.currentUrl));
+  const wantCurrent = els.usePage.checked && !els.usePage.disabled;
+  if (wantCurrent || currentIsPinned) {
+    const { source, reason } = await extractTab(await activeTab());
+    if (source) {
+      if (wantCurrent && !sources.some((s) => sameUrl(s.url, source.url))) {
+        sources.push({ url: source.url, title: source.title, text: source.text });
+      }
+      if (source.selection) selection = { title: source.title, text: source.selection };
+    } else if (wantCurrent && !currentIsPinned) {
+      addEl('note', `${reason} The current tab is left out of this answer.`);
+    }
   }
 
   const thinking = addEl('note', 'Thinking…');
@@ -211,7 +376,7 @@ async function ask(question) {
     const res = await fetch(`${base()}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ conversationId: state.conversationId, question, sources }),
+      body: JSON.stringify({ conversationId: state.conversationId, question, sources, selection }),
       signal: state.abort.signal,
     });
     if (!res.ok) {
@@ -221,11 +386,15 @@ async function ask(question) {
 
     await readSse(res, (name, data) => {
       if (name === 'meta') {
-        if (data.sourcesSent && sources[0]) {
-          const how = sources[0].selection ? 'page + your selection' : 'page';
-          addEl('note source', `Using ${how}: ${sources[0].title || sources[0].url}${data.truncated ? ' (long page, truncated)' : ''}`);
-          els.messages.appendChild(thinking); // keep "Thinking…" last
+        if (data.sent?.length) {
+          addEl('note source', `Added ${data.sent.length === 1 ? 'source' : `${data.sent.length} sources`}: ${data.sent.join(' · ')}`);
         }
+        if (selection) addEl('note source', 'Including the text you highlighted.');
+        if (data.truncated?.length) addEl('note', `Too long, only the first part was used: ${data.truncated.join(' · ')}`);
+        if (data.skipped?.length) {
+          addEl('note error', `Left out because this conversation's source limit is full: ${data.skipped.join(' · ')}. Start a new chat with fewer sources ticked to use them.`);
+        }
+        els.messages.appendChild(thinking); // keep "Thinking…" last
       } else if (name === 'tool') {
         thinking.remove();
         // A tool call ends the current text block; later text starts a new bubble.
@@ -293,6 +462,7 @@ els.newChat.addEventListener('click', () => {
 
 (async () => {
   await loadSettings();
+  renderPinned();
   await Promise.all([checkBridge(), refreshPageChip()]);
   setInterval(checkBridge, 5000);
   els.input.focus();

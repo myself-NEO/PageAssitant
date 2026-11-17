@@ -38,10 +38,35 @@
   </main>
 
   <footer>
-    <label id="pageChip" class="chip" title="">
-      <input id="usePage" type="checkbox" checked>
-      <span id="pageTitle">No page</span>
-    </label>
+    <div class="srcbar">
+      <span id="sourceCount" class="muted">Sources</span>
+      <span class="spacer"></span>
+      <button id="pinPage" class="ghost" type="button" title="Keep this page as a source after you leave it">Pin this page</button>
+      <button id="addTabs" class="ghost" type="button" title="Choose several open tabs as sources">Add open tabs…</button>
+    </div>
+
+    <section id="tabPicker" hidden>
+      <div class="row">
+        <span class="muted">Tick the tabs to add as sources</span>
+        <span class="spacer"></span>
+        <button id="tickAllTabs" class="ghost" type="button">All</button>
+      </div>
+      <div id="tabList" class="list"></div>
+      <div class="row">
+        <button id="addSelectedTabs" type="button">Add selected</button>
+        <button id="cancelTabs" class="ghost" type="button">Cancel</button>
+        <span id="tabMsg" class="muted"></span>
+      </div>
+    </section>
+
+    <div id="sourceList" class="list">
+      <label id="pageChip" class="chip" title="">
+        <input id="usePage" type="checkbox" checked>
+        <span id="pageTitle" class="title">No page</span>
+        <span class="tag">current tab</span>
+      </label>
+      <div id="pinned"></div>
+    </div>
     <form id="form">
       <textarea id="input" rows="2" placeholder="Ask a question…  (Enter to send, Shift+Enter for a new line)"></textarea>
       <button id="send" type="submit">Send</button>

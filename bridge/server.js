@@ -6,13 +6,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runTurn } from './claude.js';
-import { buildUserMessage } from './prompt.js';
+import { buildUserMessage, MAX_CONVERSATION_CHARS } from './prompt.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PAGEASSISTANT_PORT) || 8765;
 const MODEL = process.env.PAGEASSISTANT_MODEL || undefined;
-const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 // --- token -----------------------------------------------------------------
 
@@ -59,13 +59,13 @@ function corsHeaders(req) {
 
 // --- conversations ---------------------------------------------------------
 
-// conversationId -> { sessionId, sourcesKey }
+// conversationId -> { sessionId, chars, nextId, sent: Map<key, { title, active }> }
+// `sent` records every page the model has been given in this conversation, so a
+// page is sent once and later turns only mention what was added or switched off.
 const conversations = new Map();
 
-function sourcesKey(sources) {
-  const h = createHash('sha1');
-  for (const s of sources) h.update(`${s.url}\n${s.text?.length ?? 0}\n${s.selection ?? ''}\n`);
-  return h.digest('hex');
+function sourceKey(s) {
+  return createHash('sha1').update(`${s.url}\n${s.text.length}`).digest('hex');
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -97,13 +97,17 @@ function cleanSources(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((s) => s && typeof s.text === 'string' && s.text.trim())
-    .slice(0, 20)
+    .slice(0, 30)
     .map((s) => ({
       url: String(s.url ?? ''),
-      title: String(s.title ?? ''),
+      title: String(s.title ?? '') || String(s.url ?? ''),
       text: s.text,
-      selection: typeof s.selection === 'string' && s.selection.trim() ? s.selection : undefined,
     }));
+}
+
+function cleanSelection(raw) {
+  if (!raw || typeof raw.text !== 'string' || !raw.text.trim()) return undefined;
+  return { title: String(raw.title ?? ''), text: raw.text };
 }
 
 // --- routes ----------------------------------------------------------------
@@ -123,11 +127,36 @@ async function handleChat(req, res) {
     : randomBytes(8).toString('hex');
   const sources = cleanSources(body.sources);
 
-  // Send the page text only when the model has not already seen this exact set.
-  const convo = conversations.get(conversationId) ?? {};
-  const key = sources.length ? sourcesKey(sources) : convo.sourcesKey;
-  const includeSources = sources.length > 0 && key !== convo.sourcesKey;
-  const { message, truncated } = buildUserMessage(question, includeSources ? sources : []);
+  // Work out what changed since the last turn: pages the model has not seen are
+  // sent in full; pages it has seen are only switched off or back on by title.
+  const convo = conversations.get(conversationId) ?? { chars: 0, nextId: 1, sent: new Map() };
+  const sentAfter = new Map([...convo.sent].map(([k, v]) => [k, { ...v }]));
+  const current = new Set();
+  const newSources = [];
+  const switchedOn = [];
+  let nextId = convo.nextId;
+  for (const s of sources) {
+    const k = sourceKey(s);
+    if (current.has(k)) continue;
+    current.add(k);
+    const known = sentAfter.get(k);
+    if (!known) newSources.push({ ...s, key: k, id: nextId++ });
+    else if (!known.active) { known.active = true; switchedOn.push(known.title); }
+  }
+  const switchedOff = [];
+  for (const [k, v] of sentAfter) {
+    if (v.active && !current.has(k)) { v.active = false; switchedOff.push(v.title); }
+  }
+
+  const built = buildUserMessage(question, {
+    newSources,
+    switchedOff,
+    switchedOn,
+    selection: cleanSelection(body.selection),
+    budget: MAX_CONVERSATION_CHARS - convo.chars,
+  });
+  const { message } = built;
+  for (const s of built.sent) sentAfter.set(s.key, { title: s.title, active: true });
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -139,7 +168,13 @@ async function handleChat(req, res) {
     if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  send('meta', { conversationId, sourcesSent: includeSources, truncated });
+  send('meta', {
+    conversationId,
+    sent: built.sent.map((s) => s.title),
+    truncated: built.truncated,
+    skipped: built.skipped,
+    active: [...sentAfter.values()].filter((v) => v.active).length,
+  });
 
   const turn = runTurn({
     message,
@@ -154,7 +189,13 @@ async function handleChat(req, res) {
 
   try {
     const result = await turn.done;
-    conversations.set(conversationId, { sessionId: result.sessionId, sourcesKey: key });
+    // Recorded only after a successful turn, so a failed turn resends its pages.
+    conversations.set(conversationId, {
+      sessionId: result.sessionId,
+      chars: convo.chars + built.chars,
+      nextId,
+      sent: sentAfter,
+    });
     // If nothing streamed (older CLI output shape), deliver the whole answer at once.
     if (!result.streamed && result.text) send('delta', { text: result.text });
     send('done', {});

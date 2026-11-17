@@ -165,7 +165,39 @@ footer {
   color: var(--muted);
   min-width: 0;
 }
-.chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip.unavailable span { text-decoration: line-through; }
+.chip .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.chip.unavailable .title { text-decoration: line-through; }
+.chip input { flex: none; margin: 0; }
+.chip .tag {
+  flex: none;
+  font-size: 10.5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+.chip .remove {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+.chip .remove:hover { color: var(--bad); }
+.srcbar { display: flex; align-items: center; gap: 6px; }
+.list { display: grid; gap: 4px; max-height: 132px; overflow-y: auto; }
+#pinned { display: grid; gap: 4px; }
+#pinned:empty { display: none; }
+#tabPicker {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+#tabPicker[hidden] { display: none; }
+#tabPicker .list { max-height: 180px; }
 #form { display: flex; gap: 6px; }
 textarea { resize: none; min-height: 44px; max-height: 160px; }
